@@ -1,0 +1,45 @@
+name: Context check
+
+# Added by `ckeel init --ci`. Keeps a team's shared context from rotting:
+# generated editor configs stay current, and the code index stays in step with
+# the source. It never fails on the optional notes viewer.
+
+on:
+  pull_request:
+  schedule:
+    # Weekly refresh, opened as a PR rather than pushed to the default branch.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv tool install contextkeel
+      - name: Context is current
+        run: |
+          ckeel sync --check
+          ckeel doctor --json
+
+  refresh:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv tool install contextkeel
+      - run: ckeel sync --full
+      - uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: refresh project context"
+          title: "chore: refresh project context"
+          body: |
+            Automated refresh of the generated editor configs and project notes.
+          branch: chore/refresh-context
+          delete-branch: true

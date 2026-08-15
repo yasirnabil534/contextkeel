@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # macOS, Windows and Linux are equal targets, so all three gate the build.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync
+        run: uv sync --all-extras --python ${{ matrix.python }}
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Test
+        # Offline by default: any test needing the network must be marked, so
+        # the suite proves the offline path actually works.
+        run: uv run pytest -m "not network" --cov=contextkeel --cov-report=term-missing
+
+      - name: Coverage floor on the modules that matter
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          uv run pytest -m "not network" --cov=contextkeel.render --cov=contextkeel.hooks \
+            --cov-report=term-missing --cov-fail-under=90
+
+  bootstrap:
+    # This job validates the product's headline promise: one line, on a
+    # machine with nothing installed. It is the only job allowed network access.
+    name: bootstrap (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu-no-python
+            os: ubuntu-latest
+            container: ubuntu:22.04
+          - name: windows
+            os: windows-latest
+            container: ""
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: POSIX installer on a machine with no Python
+        if: matrix.container != ''
+        shell: bash
+        run: |
+          set -eu
+          apt-get update -qq && apt-get install -y -qq curl git >/dev/null
+          command -v python3 && { echo "expected no python3 in this image"; exit 1; } || true
+          export CONTEXTKEEL_REF="$(pwd)"
+          sh bootstrap/install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          ckeel --version
+          ckeel doctor
+
+      - name: PowerShell installer
+        if: matrix.container == ''
+        shell: pwsh
+        run: |
+          $env:CONTEXTKEEL_REF = $PWD.Path
+          ./bootstrap/install.ps1
+          $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+          ckeel --version
+          ckeel doctor
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: POSIX compliance
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq dash shellcheck
+          # /bin/sh is dash on Debian: bash-isms must not creep in.
+          dash -n bootstrap/install.sh
+          shellcheck -s sh bootstrap/install.sh

@@ -1,0 +1,43 @@
+project:
+  name: contextkeel
+  description: ''
+  type: backend
+frontend:
+  platform: unknown
+  language: unknown
+  framework: unknown
+  package_manager: unknown
+  build_tool: unknown
+  styling: unknown
+  state: none
+  navigation: unknown
+backend:
+  language: python
+  runtime: cpython
+  framework: unknown
+  package_manager: uv
+  database: unknown
+  orm: none
+architecture:
+  pattern: unknown
+  frontend_pattern: unknown
+  api_style: rest
+  monorepo: no
+  notes: unknown
+ui:
+  mode: agent
+  figma: ''
+conventions:
+  test_framework: pytest
+  e2e_framework: playwright
+  ci: github-actions
+  commit_style: conventional
+  formatter: ruff
+  linter: ruff
+context:
+  vault: Vault
+  workspace: .contextkeel
+  read_context_first: true
+  update_after_changes: true
+  backend: ''
+  viewer: auto
