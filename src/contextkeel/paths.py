@@ -12,11 +12,31 @@ from pathlib import Path
 WORKSPACE_DIRNAME = ".contextkeel"
 _ROOT_MARKERS = (".git", "project.yml", "pyproject.toml", "package.json", "go.mod")
 
-GITIGNORE_BLOCK = """
-# contextkeel workspace — generated locally, regenerated on demand.
-.contextkeel/
-graphify-out/
-"""
+#: Marker so the block can be recognised and extended on later runs.
+GITIGNORE_MARKER = "# contextkeel — generated, regenerate with `ckeel init`"
+
+#: Generated and therefore not source. Two different reasons:
+#:
+#: * the workspace and index are build artefacts;
+#: * the editor configs are rendered from the installed package, and the MCP
+#:   files among them contain *absolute paths*. Committing those republishes
+#:   one machine's home-directory layout and hands every teammate a config
+#:   that is wrong for them — which is precisely the bug this tool exists to
+#:   remove. `ckeel init` recreates all of it in one command.
+#:
+#: Deliberately NOT ignored: Vault/ (authored notes), project.yml (your
+#: declared stack) and AGENTS.md (human-readable conventions). Those are
+#: portable, meaningful, and belong in the repository.
+GITIGNORE_ENTRIES = (
+    ".contextkeel/",
+    "graphify-out/",
+    ".claude/",
+    ".cursor/",
+    ".continue/",
+    ".mcp.json",
+)
+
+GITIGNORE_BLOCK = "\n" + GITIGNORE_MARKER + "\n" + "\n".join(GITIGNORE_ENTRIES) + "\n"
 
 
 def find_repo_root(start: Path | None = None) -> Path:
@@ -95,22 +115,34 @@ def cache_dir() -> Path:
 
 
 def ensure_gitignored(root: Path) -> bool:
-    """Append the workspace dir to ``.gitignore``. Idempotent; never rewrites."""
+    """Ensure every generated path is ignored. Idempotent, and additive.
+
+    Appends only the entries that are missing, so a project set up by an older
+    version picks up new ones without the file being rewritten, and a user who
+    deliberately un-ignores something is not overridden wholesale.
+    """
     gitignore = root / ".gitignore"
     try:
         existing = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
-        if WORKSPACE_DIRNAME in existing:
+        lines = {line.strip() for line in existing.splitlines()}
+        missing = [entry for entry in GITIGNORE_ENTRIES if entry not in lines]
+        if not missing:
             return False
+
         with gitignore.open("a", encoding="utf-8") as fh:
             if existing and not existing.endswith("\n"):
                 fh.write("\n")
-            fh.write(GITIGNORE_BLOCK)
+            if GITIGNORE_MARKER not in existing:
+                fh.write("\n" + GITIGNORE_MARKER + "\n")
+            fh.write("\n".join(missing) + "\n")
         return True
     except OSError:
         return False
 
 
 __all__ = [
+    "GITIGNORE_ENTRIES",
+    "GITIGNORE_MARKER",
     "WORKSPACE_DIRNAME",
     "Layout",
     "cache_dir",

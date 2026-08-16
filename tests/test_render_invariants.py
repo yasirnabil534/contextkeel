@@ -298,3 +298,60 @@ def test_notes_are_readable_without_any_app(initialised: Path):
     """Obsidian is a viewer, never a dependency."""
     for name in ("Home.md", "Changelog.md", "Context/Conventions.md"):
         assert (initialised / "Vault" / name).read_text(encoding="utf-8").strip()
+
+
+# -- what ends up in the user's repository ---------------------------------
+
+
+def _tracked_after_add(root: Path) -> list[str]:
+    """Files git would actually commit, honouring .gitignore."""
+    import subprocess
+
+    subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True, check=False)
+    out = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return [line for line in out.stdout.splitlines() if line.strip()]
+
+
+def test_no_committed_file_contains_a_machine_specific_path(initialised: Path):
+    """The template's original sin, in a new hiding place.
+
+    Generated MCP configs hold absolute paths. Committing them republishes one
+    machine's home-directory layout and hands teammates a config that is wrong
+    for them. They must be ignored, not merely regenerated.
+    """
+    offenders = []
+    for rel in _tracked_after_add(initialised):
+        path = initialised / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if str(initialised) in text:
+            offenders.append(rel)
+    assert not offenders, f"machine-specific paths would be committed: {offenders}"
+
+
+def test_generated_editor_configs_are_not_committed(initialised: Path):
+    tracked = _tracked_after_add(initialised)
+    for prefix in (".claude/", ".cursor/", ".continue/", ".mcp.json", ".contextkeel/"):
+        leaked = [f for f in tracked if f.startswith(prefix)]
+        assert not leaked, (
+            f"{prefix} is generated and should not be committed: {leaked[:3]}"
+        )
+
+
+def test_authored_content_IS_committed(initialised: Path):
+    """Ignoring generated files must not throw away the notes with them."""
+    tracked = set(_tracked_after_add(initialised))
+    assert any(f.startswith("Vault/") for f in tracked), (
+        "notes must travel with the repo"
+    )
+    assert "AGENTS.md" in tracked, "shared conventions are human-readable and portable"

@@ -93,9 +93,24 @@ Picking up someone else's repository, or checking a junior's work? After
 plain Markdown, so any editor works — and the graph is a self-contained HTML
 file needing no server.
 
-One thing to know: `graphify-out/` and `.contextkeel/` are generated and
-git-ignored, so a fresh clone will not have them. Run `ckeel sync` once and
-they appear. `Vault/` **is** committed, so the notes travel with the repo.
+### What lands in your repository
+
+contextkeel commits what a human wrote and ignores what it generated:
+
+| Committed | Ignored |
+|---|---|
+| `Vault/` — your notes and decisions | `.claude/`, `.cursor/`, `.continue/` — editor configs |
+| `project.yml` — your declared stack | `.mcp.json` — contains absolute paths |
+| `AGENTS.md` — the shared conventions | `.contextkeel/`, `graphify-out/` — index and state |
+
+About twenty files instead of a hundred, and — more importantly — **nothing
+carrying a machine-specific path is ever published.** Those MCP configs hold
+absolute paths: committing them would put your home-directory layout in a
+public repo and hand every teammate a config that is wrong on their machine.
+
+A teammate clones, runs `ckeel init`, and gets configs correct for *their*
+machine in one command. If your team would rather commit them anyway, delete
+the lines from `.gitignore` — contextkeel will not put them back.
 
 ## Under the hood
 
