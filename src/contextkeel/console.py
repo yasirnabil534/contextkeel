@@ -18,6 +18,7 @@ mapping so any neutral phrase can be translated back to the real thing.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -70,6 +71,7 @@ def configure(
     *, quiet: bool = False, json_mode: bool = False, expert: bool = False
 ) -> Output:
     global out
+    _use_utf8()
     out = Output(quiet=quiet, json_mode=json_mode, expert=expert)
     return out
 
@@ -79,6 +81,31 @@ def render(text: str) -> str:
     return out.render(text)
 
 
+#: Windows consoles default to cp1252, which cannot encode these. Forcing
+#: UTF-8 usually works, but a redirected or exotic stream may still refuse,
+#: so keep an ASCII equivalent for every symbol we print. The same care
+#: `platform.run` takes with subprocess output belongs on our own stdout.
+_ASCII_FALLBACK = {"\u2192": "->", "\u2713": "OK", "\u2717": "X", "\u2026": "..."}
+
+
+def _make_printable(text: str, stream) -> str:
+    encoding = getattr(stream, "encoding", None) or "utf-8"
+    try:
+        text.encode(encoding)
+        return text
+    except (UnicodeEncodeError, LookupError):
+        for fancy, plain in _ASCII_FALLBACK.items():
+            text = text.replace(fancy, plain)
+        return text.encode(encoding, "replace").decode(encoding, "replace")
+
+
+def _use_utf8() -> None:
+    """Ask both streams for UTF-8; harmless where they already are."""
+    for stream in (sys.stdout, sys.stderr):
+        with contextlib.suppress(AttributeError, ValueError, OSError):
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
+
 def _emit(text: str, *, stream=None, force: bool = False) -> None:
     log.debug("emit: %s", text)  # log always records real names, to file only
     if out.json_mode:
@@ -86,7 +113,8 @@ def _emit(text: str, *, stream=None, force: bool = False) -> None:
         return
     if out.quiet and not force:
         return
-    print(out.render(text), file=stream or sys.stdout)
+    target = stream or sys.stdout
+    print(_make_printable(out.render(text), target), file=target)
 
 
 def step(text: str) -> None:
@@ -113,7 +141,7 @@ def detail(text: str) -> None:
     """Expert-only line. Invisible in the default register."""
     log.debug("detail: %s", text)
     if out.register == "expert" and not out.json_mode:
-        print(text)
+        print(_make_printable(text, sys.stdout))
 
 
 def emit_json(payload: dict) -> None:

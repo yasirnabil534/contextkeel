@@ -281,3 +281,38 @@ def test_empty_repo_still_gets_a_working_default(empty_repo: Path):
     cfg = config_mod.resolve(config_mod.load(empty_repo), empty_repo)
     assert cfg.project.type == "fullstack"
     assert cfg.frontend.framework == "react"
+
+
+# -- console encoding ------------------------------------------------------
+
+
+def test_output_survives_a_cp1252_stream(monkeypatch):
+    """Windows consoles default to cp1252 and cannot encode the arrow glyph.
+
+    This crashed `ckeel init` on Windows with UnicodeEncodeError. Streams that
+    can be switched to UTF-8 are; this covers the ones that cannot, which is
+    the case that actually broke.
+    """
+    import io
+    import sys as _sys
+
+    from contextkeel import console
+
+    class Cp1252Stream(io.StringIO):
+        """No reconfigure(), so the UTF-8 upgrade cannot rescue it."""
+
+        encoding = "cp1252"
+
+    stream = Cp1252Stream()
+    console.configure()
+    monkeypatch.setattr(_sys, "stdout", stream)
+
+    console.step("Setting up demo")
+    console.ok("done")
+
+    written = stream.getvalue()
+    assert "-> Setting up demo" in written
+    assert "OK done" in written
+    assert "\u2192" not in written and "\u2713" not in written
+    # And it must be genuinely encodable on such a console.
+    written.encode("cp1252")
