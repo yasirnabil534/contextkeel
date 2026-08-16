@@ -83,6 +83,8 @@ add_to_path() {
   for rc in "${HOME}/.zshrc" "${HOME}/.bashrc" "${HOME}/.profile"; do
     [ -f "$rc" ] || continue
     if ! grep -q '\.local/bin' "$rc" 2>/dev/null; then
+      # shellcheck disable=SC2016  # $PATH must stay literal: it is expanded by
+      # the user's future shell when the rc file is sourced, not by us now.
       printf '\nexport PATH="%s:$PATH"\n' "$BIN_DIR" >> "$rc"
     fi
   done

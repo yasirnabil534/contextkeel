@@ -1,0 +1,39 @@
+---
+created: {{ date }}
+type: decision
+tags: [adr]
+status: accepted
+---
+
+# 0001 — Project context is maintained, not re-derived
+
+**Status:** accepted
+**Date:** {{ date }}
+
+## Context
+
+Agents and people across different editors repeatedly re-read the codebase to
+rebuild the same understanding. That wastes tokens and produces inconsistent
+behaviour between tools and teammates.
+
+## Decision
+
+Keep two kinds of memory, with different maintenance models:
+
+- **Derived** — code structure, generated from the actual source and
+  regenerated on demand. Never hand-edited, so it cannot silently go stale.
+- **Prescriptive** — these notes: conventions, glossary, contracts, decisions.
+  Authored, and kept true as part of finishing work.
+
+Agents read both before scanning source files.
+
+## Consequences
+
+- Lower token use: navigate by index instead of full-repo scans.
+- Consistency: every agent and editor follows the same conventions.
+- New obligation: context must be kept in sync, or it drifts and misleads.
+
+## Alternatives considered
+
+- Per-tool config only — rejected: duplicated, and drifts between tools.
+- No persistent context — rejected: that is the problem being solved.

@@ -69,6 +69,14 @@ src = ["src", "tests"]
 select = ["E", "F", "I", "UP", "B", "SIM", "PTH"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+# Declared explicitly rather than inferred. Ruff's first-party detection
+# depends on environment state and disagreed between a working copy and a
+# fresh checkout of the same commit -- it classified contextkeel.vault as
+# third-party while keeping contextkeel.cli first-party. A linter that
+# reaches different verdicts on identical bytes is worse than no linter.
+known-first-party = ["contextkeel"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
 # Typer requires option objects as argument defaults; B008 cannot apply here.

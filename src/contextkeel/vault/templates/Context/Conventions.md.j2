@@ -1,0 +1,34 @@
+---
+created: {{ date }}
+type: context
+tags: [context, conventions]
+---
+
+# Conventions
+
+> Canonical, language-agnostic conventions for this project. This is what makes
+> output consistent across IDEs and people.
+
+## Code
+- Keep changes small and focused; no drive-by refactors.
+- Match the existing style of the file you are editing.
+- Prefer clear names over comments; comment only non-obvious intent.
+- Handle errors explicitly; never swallow exceptions silently.
+- No secrets in code or config; use environment variables.
+
+## Project layout
+- Navigate via the generated code index, not by globbing the tree.
+- New code goes in the module that owns its responsibility; create a new module
+  only when none fits.
+
+## Testing
+- Test framework: **{{ conventions.test_framework }}**.
+- Every behaviour change ships with a test.
+- Name tests after the behaviour, not the function.
+
+## Git
+- Commit style: **{{ conventions.commit_style }}**.
+- One logical change per commit.
+
+## Reviews
+- 🔴 Critical (must fix), 🟡 Suggestion, 🟢 Nice-to-have.
