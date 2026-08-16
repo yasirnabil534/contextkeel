@@ -3,13 +3,13 @@
 **macOS / Linux**
 
 ```sh
-curl -LsSf https://contextkeel.dev/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/yasirnabil534/contextkeel/main/bootstrap/install.sh | sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-irm https://contextkeel.dev/install.ps1 | iex
+irm https://raw.githubusercontent.com/yasirnabil534/contextkeel/main/bootstrap/install.ps1 | iex
 ```
 
 That is the whole setup. Nothing needs to be installed first — not even Python.

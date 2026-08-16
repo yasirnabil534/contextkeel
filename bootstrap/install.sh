@@ -1,7 +1,7 @@
 #!/bin/sh
 # contextkeel installer — macOS and Linux.
 #
-#   curl -LsSf https://contextkeel.dev/install.sh | sh
+#   curl -LsSf https://raw.githubusercontent.com/yasirnabil534/contextkeel/main/bootstrap/install.sh | sh
 #
 # Requires nothing pre-installed. Non-interactive, idempotent, and quiet:
 # at most six lines of output, and never a prompt.
@@ -12,7 +12,14 @@
 
 set -eu
 
-PACKAGE="${CONTEXTKEEL_REF:-contextkeel}"
+# Install sources, tried in order unless CONTEXTKEEL_REF overrides them.
+# PyPI comes first so that publishing the package makes this work with no edit
+# here; until then the repository tarball serves. A tarball rather than
+# git+https on purpose: git+ would quietly make git a requirement of a tool
+# that otherwise installs everything it needs.
+PYPI_NAME="contextkeel"
+REPO_TARBALL="https://github.com/yasirnabil534/contextkeel/archive/refs/heads/main.tar.gz"
+PACKAGE="${CONTEXTKEEL_REF:-}"
 PYTHON_MIN="3.11"
 BIN_DIR="${HOME}/.local/bin"
 
@@ -60,16 +67,25 @@ ensure_system_python() {
 # ---------------------------------------------------------------------------
 # 3. Install contextkeel itself.
 # ---------------------------------------------------------------------------
+try_install() {
+  # uv downloads a managed CPython when the host has none new enough, so this
+  # works on a machine with no Python at all.
+  uv tool install --python "$PYTHON_MIN" --force "$1" >/dev/null 2>&1 && return 0
+  uv tool install --force "$1" >/dev/null 2>&1
+}
+
 install_tool() {
   if have uv; then
-    # uv downloads a managed CPython when the host has none new enough, so
-    # this works on a machine with no Python at all.
-    uv tool install --python "$PYTHON_MIN" --force "$PACKAGE" >/dev/null 2>&1 && return 0
-    uv tool install --force "$PACKAGE" >/dev/null 2>&1 && return 0
+    if [ -n "$PACKAGE" ]; then
+      try_install "$PACKAGE"          # explicit override wins outright
+      return $?
+    fi
+    try_install "$PYPI_NAME" && return 0
+    try_install "$REPO_TARBALL" && return 0
     return 1
   fi
   ensure_system_python || return 1
-  python3 -m pip install --user --upgrade "$PACKAGE" >/dev/null 2>&1
+  python3 -m pip install --user --upgrade "${PACKAGE:-$REPO_TARBALL}" >/dev/null 2>&1
 }
 
 add_to_path() {
@@ -98,7 +114,7 @@ main() {
   else
     ensure_uv || say "Setting up: falling back to a system Python…"
     say "Setting up (2/3): installing contextkeel…"
-    install_tool || die "Install failed. See https://contextkeel.dev/install for the manual steps."
+    install_tool || die "Install failed. See https://github.com/yasirnabil534/contextkeel#what-you-need for the manual steps."
   fi
 
   add_to_path

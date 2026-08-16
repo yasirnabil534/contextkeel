@@ -1,7 +1,7 @@
 <#
     contextkeel installer - Windows.
 
-        irm https://contextkeel.dev/install.ps1 | iex
+        irm https://raw.githubusercontent.com/yasirnabil534/contextkeel/main/bootstrap/install.ps1 | iex
 
     Requires nothing pre-installed. Non-interactive, idempotent, quiet.
 
@@ -12,7 +12,12 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Package   = if ($env:CONTEXTKEEL_REF) { $env:CONTEXTKEEL_REF } else { 'contextkeel' }
+# Tried in order unless CONTEXTKEEL_REF overrides. PyPI first so publishing
+# the package makes this work with no edit; the repository tarball serves
+# until then (a tarball, not git+https, so git is not made a requirement).
+$Package     = $env:CONTEXTKEEL_REF
+$PypiName    = 'contextkeel'
+$RepoTarball = 'https://github.com/yasirnabil534/contextkeel/archive/refs/heads/main.tar.gz'
 $PythonMin = '3.11'
 $BinDir    = Join-Path $env:USERPROFILE '.local\bin'
 
@@ -59,18 +64,25 @@ function Ensure-SystemPython {
     return $false
 }
 
+function Try-Install([string]$Source) {
+    # uv fetches a managed CPython when the host has none new enough, so this
+    # succeeds on a machine with no Python at all.
+    uv tool install --python $PythonMin --force $Source 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { return $true }
+    uv tool install --force $Source 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Install-Tool {
     if (Have 'uv') {
-        # uv fetches a managed CPython when the host has none new enough, so
-        # this succeeds on a machine with no Python at all.
-        uv tool install --python $PythonMin --force $Package 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { return $true }
-        uv tool install --force $Package 2>$null | Out-Null
-        if ($LASTEXITCODE -eq 0) { return $true }
+        if ($Package) { return (Try-Install $Package) }
+        if (Try-Install $PypiName) { return $true }
+        if (Try-Install $RepoTarball) { return $true }
         return $false
     }
     if (-not (Ensure-SystemPython)) { return $false }
-    python -m pip install --user --upgrade $Package 2>$null | Out-Null
+    $source = if ($Package) { $Package } else { $RepoTarball }
+    python -m pip install --user --upgrade $source 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -92,7 +104,7 @@ if ((Have 'ckeel') -and ($env:CONTEXTKEEL_FORCE -ne '1')) {
     if (-not (Ensure-Uv)) { Say 'Setting up: falling back to a system Python...' }
     Say 'Setting up (2/3): installing contextkeel...'
     if (-not (Install-Tool)) {
-        Die 'Install failed. See https://contextkeel.dev/install for the manual steps.'
+        Die 'Install failed. See https://github.com/yasirnabil534/contextkeel#what-you-need for the manual steps.'
     }
 }
 
