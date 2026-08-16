@@ -33,9 +33,12 @@ None of these block anything. contextkeel checks for each and adapts.
 
 | Thing | What it adds | If missing |
 |---|---|---|
-| **Node / npx** | One extra MCP server that reads your notes folder | That server is simply left out of the generated config. Everything else works. Install from [nodejs.org](https://nodejs.org) if you want it. |
-| **Obsidian** | A nice reader for your project notes | Notes are plain Markdown and open in any editor. Install from [obsidian.md](https://obsidian.md), or run `ckeel init --with-viewer` to retry the automatic install. |
+| **Obsidian** | A nicer reader for your project notes | Notes are plain Markdown and open in any editor. Install from [obsidian.md](https://obsidian.md), or run `ckeel init --with-viewer` to retry the automatic install. |
 | **An LLM API key** | Documentation summarised in the code index | Code is still indexed in full. See *How the code index is built* below. |
+
+There is deliberately **no Node requirement**. Every MCP server contextkeel
+configures runs on either its own CLI or `uvx`, both of which the installer
+guarantees.
 
 ---
 
@@ -65,7 +68,15 @@ Claude Code, Cursor and Continue are configured automatically — all three from
 the same source, so they behave identically and cannot drift apart. No manual
 setup, no config files to copy, no paths to fix by hand.
 
-Any other MCP-capable editor can use the bundled server directly.
+Any other MCP-capable editor can use the bundled server directly. It exposes:
+
+| Tool | For |
+|---|---|
+| `load_context` | The whole picture in one call, instead of reading a dozen files |
+| `query_index` | Where a symbol lives, with `file:line` |
+| `list_notes` / `read_note` / `write_note` | The project notes; writes are confined to the notes folder |
+| `sync_context` | Refresh after changes |
+| `status`, `plan` | Project state; prompt-plan validation |
 
 ## Reviewing a project
 

@@ -120,7 +120,17 @@ def test_handshake_and_tool_list(served: Path):
     )
     assert responses[1]["result"]["serverInfo"]["name"] == "contextkeel"
     names = {t["name"] for t in responses[2]["result"]["tools"]}
-    assert names == {"load_context", "query_index", "sync_context", "status", "plan"}
+    assert names == {
+        "load_context",
+        "query_index",
+        "sync_context",
+        "status",
+        "plan",
+        # Notes are served here rather than by a separate Node process.
+        "list_notes",
+        "read_note",
+        "write_note",
+    }
 
 
 def test_stdout_carries_protocol_frames_only(served: Path):
@@ -211,3 +221,43 @@ def test_load_context_is_one_call_not_many_reads(served: Path):
     text = mcp_tools.load_context(served)
     assert "Stack:" in text
     assert "Code index" in text or "No code index" in text
+
+
+# -- notes over MCP (replacing the Node filesystem server) -----------------
+
+
+def test_notes_are_readable_and_writable_over_mcp(served: Path):
+    listing = mcp_tools.list_notes(served)
+    assert "Context/Conventions.md" in listing
+
+    text = mcp_tools.read_note(served, "Context/Conventions.md")
+    assert "Conventions" in text
+
+    result = mcp_tools.write_note(
+        served, "Decisions/0003-caching.md", "# Caching\n\nUse a CDN.\n"
+    )
+    assert "Created" in result
+    assert "CDN" in mcp_tools.read_note(served, "Decisions/0003-caching.md")
+
+    # Second write updates rather than duplicating.
+    assert "Updated" in mcp_tools.write_note(
+        served, "Decisions/0003-caching.md", "# Caching\n\nEdge.\n"
+    )
+
+
+def test_note_paths_cannot_escape_the_vault(served: Path):
+    """The path comes from a model, so traversal is a real input."""
+    for attempt in ("../../../etc/passwd", "../.mcp.json", "/etc/passwd"):
+        with pytest.raises(ValueError):
+            mcp_tools.read_note(served, attempt)
+        with pytest.raises(ValueError):
+            mcp_tools.write_note(served, attempt, "pwned")
+
+
+def test_notes_must_be_markdown(served: Path):
+    with pytest.raises(ValueError):
+        mcp_tools.write_note(served, "Context/config.json", "{}")
+
+
+def test_missing_note_is_a_message_not_a_crash(served: Path):
+    assert "No such note" in mcp_tools.read_note(served, "Context/Nope.md")

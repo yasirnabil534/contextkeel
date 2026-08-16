@@ -267,27 +267,22 @@ def test_user_permissions_and_hooks_survive_a_rerender(initialised: Path):
 # -- external runtimes are optional, never required ------------------------
 
 
-def test_filesystem_server_omitted_when_node_is_absent(tmp_path, monkeypatch):
-    """Never hand an editor a server that cannot start.
+def test_no_server_needs_node(tmp_path):
+    """Every server must run on something the installer guarantees.
 
-    The filesystem MCP server is the one piece needing Node, which this tool
-    does not install. On a machine without npx it must be left out rather than
-    emitted and broken.
+    The filesystem server used to be here, pointed at a folder inside the repo
+    that the editor already reads natively -- duplicating existing access
+    while dragging in a JavaScript runtime. Our own server covers notes now.
     """
     from contextkeel.render import mcp as mcp_render
 
-    monkeypatch.setattr(mcp_render, "_path", lambda p: str(p))
-    from contextkeel import platform as ckplat
-
-    monkeypatch.setattr(ckplat, "which", lambda stem: None)
-    names = {s.name for s in mcp_render.servers_for(tmp_path, tmp_path / "Vault")}
-    assert "filesystem" not in names
-    # The servers that ship with uv are always available.
-    assert {"contextkeel", "git", "fetch"} <= names
-
-    monkeypatch.setattr(ckplat, "which", lambda stem: Path("/usr/bin/npx"))
-    names = {s.name for s in mcp_render.servers_for(tmp_path, tmp_path / "Vault")}
-    assert "filesystem" in names
+    servers = mcp_render.servers_for(tmp_path, tmp_path / "Vault")
+    commands = {s.command for s in servers}
+    assert commands <= {"ckeel", "uvx"}, (
+        f"a server needs an uninstalled runtime: {commands}"
+    )
+    assert "npx" not in commands
+    assert {s.name for s in servers} == {"contextkeel", "git", "fetch"}
 
 
 def test_vault_opens_as_an_obsidian_vault(initialised: Path):

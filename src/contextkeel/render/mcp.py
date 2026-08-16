@@ -19,15 +19,20 @@ from contextkeel.render.model import McpServerDef
 
 
 def servers_for(root: Path, vault_dir: Path) -> list[McpServerDef]:
-    """Build the server list with every path resolved against ``root``."""
+    """Build the server list with every path resolved against ``root``.
+
+    Every server here runs on something the installer guarantees: this
+    package's own CLI, or uvx which ships with uv. Nothing needs Node.
+    """
     root = root.resolve()
-    vault_dir = vault_dir.resolve()
+    _ = vault_dir  # served by our own server now, not a separate one
 
-    from contextkeel import platform as ckplat
-
-    servers = [
+    return [
         # This package's own server: one entry point gives every editor the
-        # same context tools with no manual configuration.
+        # same context tools with no manual configuration. It also serves the
+        # notes, which is why no Node-based filesystem server is needed --
+        # that one duplicated file access the editor already has, and dragged
+        # a whole extra runtime behind it.
         McpServerDef(
             name="contextkeel",
             command="ckeel",
@@ -41,24 +46,6 @@ def servers_for(root: Path, vault_dir: Path) -> list[McpServerDef]:
         ),
         McpServerDef(name="fetch", command="uvx", args=["mcp-server-fetch"]),
     ]
-
-    # The filesystem server is the one piece needing Node, which this tool does
-    # not install. Emitting it on a machine without npx would hand the editor a
-    # server that can never start, so include it only when it can actually run.
-    if ckplat.which("npx"):
-        servers.insert(
-            1,
-            McpServerDef(
-                name="filesystem",
-                command="npx",
-                args=[
-                    "-y",
-                    "@modelcontextprotocol/server-filesystem",
-                    _path(vault_dir),
-                ],
-            ),
-        )
-    return servers
 
 
 def _path(path: Path) -> str:

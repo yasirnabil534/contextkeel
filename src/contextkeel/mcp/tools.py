@@ -71,6 +71,54 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "list_notes",
+        "description": (
+            "List the project's notes: conventions, glossary, API contracts, "
+            "decisions and changelog. Use before reading, to see what exists."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "subdir": {
+                    "type": "string",
+                    "description": "Limit to a subfolder, e.g. 'Context' or 'Decisions'.",
+                }
+            },
+        },
+    },
+    {
+        "name": "read_note",
+        "description": (
+            "Read one project note by its path relative to the notes folder, "
+            "e.g. 'Context/Conventions.md'."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "e.g. Context/Conventions.md"}
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_note",
+        "description": (
+            "Create or replace one project note. Use for recording decisions, "
+            "glossary terms and API contracts as you learn them. Markdown only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "e.g. Decisions/0003-caching.md",
+                },
+                "content": {"type": "string", "description": "Full Markdown content."},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
         "name": "plan",
         "description": (
             "Validate a prompt plan, or allocate a retrofit code for one. "
@@ -205,7 +253,67 @@ def plan(
     return "Pass 'check' with a plan path, or 'insert_after' with a prompt code."
 
 
+def _vault_of(root: Path) -> Path:
+    from contextkeel.cli.common import open_workspace
+
+    return open_workspace(root).vault_dir
+
+
+def _safe_note_path(root: Path, rel: str) -> Path:
+    """Resolve ``rel`` inside the notes folder, or refuse.
+
+    An MCP tool takes its path from a model, so ``../../.ssh/id_rsa`` is a
+    realistic input rather than a hypothetical one. Resolve first, then verify
+    containment -- checking the string for ".." is not equivalent, because
+    symlinks and absolute paths bypass it.
+    """
+    vault = _vault_of(root).resolve()
+    candidate = (vault / rel).resolve()
+    if not candidate.is_relative_to(vault):
+        raise ValueError(f"path escapes the notes folder: {rel}")
+    if candidate.suffix.lower() not in {".md", ""}:
+        raise ValueError("notes are Markdown; use a .md path")
+    return candidate.with_suffix(".md") if not candidate.suffix else candidate
+
+
+def list_notes(root: Path, subdir: str = "") -> str:
+    vault = _vault_of(root)
+    base = _safe_note_path(root, subdir).with_suffix("") if subdir else vault
+    if not base.is_dir():
+        return f"No such folder: {subdir or '.'}"
+    found = sorted(
+        path.relative_to(vault).as_posix()
+        for path in base.rglob("*.md")
+        if ".obsidian" not in path.parts
+    )
+    if not found:
+        return "No notes yet."
+    return f"{len(found)} note(s):\n" + "\n".join(f"- {name}" for name in found)
+
+
+def read_note(root: Path, path: str) -> str:
+    target = _safe_note_path(root, path)
+    if not target.is_file():
+        return f"No such note: {path}. Call list_notes to see what exists."
+    text = target.read_text(encoding="utf-8", errors="replace")
+    return text[:MAX_REPORT_CHARS]
+
+
+def write_note(root: Path, path: str, content: str) -> str:
+    target = _safe_note_path(root, path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    existed = target.is_file()
+    tmp = target.with_name(target.name + ".ckeel-tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(target)
+    verb = "Updated" if existed else "Created"
+    return f"{verb} {target.relative_to(_vault_of(root)).as_posix()}"
+
+
 HANDLERS = {
+    "list_notes": list_notes,
+    "read_note": read_note,
+    "write_note": write_note,
     "load_context": load_context,
     "query_index": query_index,
     "sync_context": sync_context,

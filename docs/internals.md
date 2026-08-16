@@ -87,3 +87,24 @@ triggers one index update.
 
 Every generated path is resolved from the repository root at render time.
 Moving or renaming the repo and running `ckeel sync` rewrites them all.
+
+## MCP servers
+
+Three, and none of them needs a runtime the installer does not provide:
+
+| Server | Runs via |
+|---|---|
+| `contextkeel` | this package's own CLI |
+| `git`, `fetch` | `uvx`, which ships with uv |
+
+A Node-based filesystem server used to sit here, pointed at the notes folder.
+It was inherited from the template contextkeel replaced and never questioned.
+The notes folder is always inside the repository, so that server duplicated
+file access the editor already has natively — while making a JavaScript
+runtime a de-facto requirement. It was removed, and `read_note`/`write_note`
+on our own server cover the same ground for clients that lack file tools.
+
+Note paths from those tools are resolved and then checked for containment in
+the notes folder. Checking the string for `..` is not equivalent: symlinks and
+absolute paths bypass it, and the path comes from a model, so traversal is a
+realistic input rather than a hypothetical one.
