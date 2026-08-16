@@ -110,6 +110,7 @@ def _build_index(workspace: Workspace, backend: str) -> bool:
             override=backend,
             pinned=workspace.config.context.backend,
             refresh=bool(backend),
+            use_claude_cli=workspace.config.context.use_claude_cli,
         )
         result = registry.build_index(selection, workspace.root, incremental=False)
         report.write(result, workspace.layout.index)

@@ -12,7 +12,9 @@ from pathlib import Path
 import pytest
 
 from contextkeel import console
+from contextkeel import platform as ckplat
 from contextkeel.cli import init as init_cmd
+from contextkeel.errors import BackendUnavailable
 from contextkeel.graph import registry
 from contextkeel.graph.fallback_backend import FallbackBackend
 from contextkeel.state import State
@@ -95,13 +97,84 @@ def test_runtime_failure_falls_back_mid_command(node_repo: Path, monkeypatch):
     assert selection.degraded
 
 
-def test_no_api_key_means_preferred_backend_is_skipped(monkeypatch):
-    """The real-world failure: it aborts on doc files without an LLM key."""
-    from contextkeel.graph import graphify_backend
+def test_no_api_key_selects_code_only_rather_than_giving_up(monkeypatch):
+    """A missing key is not a reason to fall back.
 
-    for var in graphify_backend.API_KEY_VARS:
+    The indexer only needs an LLM to summarise documentation, which this tool
+    does not use. Without a key it runs --code-only: no key, no network, no
+    quota, and still a richer graph than the bundled indexer.
+    """
+    from contextkeel.graph import graphify_backend as gb
+
+    for var in gb.API_KEY_VARS:
         monkeypatch.delenv(var, raising=False)
-    assert graphify_backend.GraphifyBackend().is_available() is False
+    monkeypatch.setattr(gb, "claude_cli_available", lambda: True)
+
+    assert gb.resolve_mode() is gb.IndexMode.CODE_ONLY
+    assert gb.GraphifyBackend().mode is gb.IndexMode.CODE_ONLY
+
+
+def test_api_key_selects_full_extraction(monkeypatch):
+    from contextkeel.graph import graphify_backend as gb
+
+    for var in gb.API_KEY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    assert gb.resolve_mode() is gb.IndexMode.FULL
+
+
+def test_claude_cli_is_opt_in_only(monkeypatch):
+    """It spends the user's subscription quota, so never without being asked."""
+    from contextkeel.graph import graphify_backend as gb
+
+    for var in gb.API_KEY_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(gb, "claude_cli_available", lambda: True)
+
+    assert gb.resolve_mode() is gb.IndexMode.CODE_ONLY
+    assert gb.resolve_mode(use_claude_cli=True) is gb.IndexMode.CLAUDE_CLI
+
+    # Asking for it when the CLI is absent must not select it.
+    monkeypatch.setattr(gb, "claude_cli_available", lambda: False)
+    assert gb.resolve_mode(use_claude_cli=True) is gb.IndexMode.CODE_ONLY
+
+
+def test_each_mode_builds_the_right_command(monkeypatch, node_repo):
+    """The flags are the whole point; assert them rather than trusting them."""
+    from contextkeel.graph import graphify_backend as gb
+
+    captured: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        captured.append(cmd)
+        return ckplat.RunResult(code=0, out="", err="", cmd=cmd)
+
+    monkeypatch.setattr(gb.ckplat, "which", lambda stem: Path("/fake/graphify"))
+    monkeypatch.setattr(gb.ckplat, "run", fake_run)
+
+    for mode, expected in [
+        (gb.IndexMode.CODE_ONLY, "--code-only"),
+        (gb.IndexMode.CLAUDE_CLI, "claude-cli"),
+    ]:
+        backend = gb.GraphifyBackend()
+        backend.mode = mode
+        backend._version = "test"
+        backend._flags = {"--update", "--code-only", "--backend"}
+        captured.clear()
+        with pytest.raises(BackendUnavailable):
+            backend.build(node_repo)  # no graph.json is written by the fake
+        assert expected in " ".join(captured[0])
+
+    # FULL mode adds neither flag.
+    backend = gb.GraphifyBackend()
+    backend.mode = gb.IndexMode.FULL
+    backend._version = "test"
+    backend._flags = {"--update", "--code-only", "--backend"}
+    captured.clear()
+    with pytest.raises(BackendUnavailable):
+        backend.build(node_repo)
+    joined = " ".join(captured[0])
+    assert "--code-only" not in joined and "claude-cli" not in joined
 
 
 def test_explicit_backend_choice_is_obeyed():
@@ -121,3 +194,29 @@ def test_index_is_deterministic(node_repo: Path):
     a.pop("generated_at")
     b.pop("generated_at")
     assert a == b
+
+
+def test_runtime_failure_is_not_cached_as_the_selection(node_repo, monkeypatch):
+    """One bad run must not downgrade the user permanently.
+
+    Caching the runtime fallback would leave them on the bundled indexer
+    forever, silently, with no way back short of --refresh-backends.
+    """
+    from contextkeel.errors import BackendUnavailable
+    from contextkeel.graph import graphify_backend as gb
+
+    monkeypatch.setattr(gb.GraphifyBackend, "is_available", lambda self: True)
+
+    def explode(self, root):
+        raise BackendUnavailable("transient", backend="graphify")
+
+    monkeypatch.setattr(gb.GraphifyBackend, "build", explode)
+    monkeypatch.setattr(gb.GraphifyBackend, "update", explode)
+
+    state = State()
+    selection = registry.select(state, allow_install=False)
+    registry.build_index(selection, node_repo, incremental=False)
+    registry.remember(state, selection)
+
+    assert selection.degraded is True
+    assert state.selected_backend == "graphify", "the failure was cached"

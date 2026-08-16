@@ -23,10 +23,12 @@ from contextkeel.state import State
 log = logging.getLogger("contextkeel")
 
 
-def all_backends(*, allow_install: bool = True) -> list[GraphBackend]:
+def all_backends(
+    *, allow_install: bool = True, use_claude_cli: bool = False
+) -> list[GraphBackend]:
     """Highest priority first."""
     backends: list[GraphBackend] = [
-        GraphifyBackend(allow_install=allow_install),
+        GraphifyBackend(allow_install=allow_install, use_claude_cli=use_claude_cli),
         FallbackBackend(),
     ]
     return sorted(backends, key=lambda b: b.priority, reverse=True)
@@ -38,10 +40,17 @@ class Selection:
     degraded: bool = False
     reason: str = ""
     skipped: list[tuple[str, str]] = None  # (name, why)
+    #: The backend chosen by probing, which is what gets cached. A runtime
+    #: failure swaps `backend` for the fallback but must NOT be remembered:
+    #: one bad run would otherwise downgrade the user permanently and
+    #: silently, with no path back.
+    probed_name: str = ""
 
     def __post_init__(self) -> None:
         if self.skipped is None:
             self.skipped = []
+        if not self.probed_name:
+            self.probed_name = self.backend.name
 
 
 def select(
@@ -51,13 +60,14 @@ def select(
     pinned: str = "",
     allow_install: bool = True,
     refresh: bool = False,
+    use_claude_cli: bool = False,
 ) -> Selection:
     """Choose a backend.
 
     Precedence: explicit ``--backend`` flag, then ``context.backend`` pinned in
     project.yml, then the cached choice, then a fresh probe by priority.
     """
-    backends = all_backends(allow_install=allow_install)
+    backends = all_backends(allow_install=allow_install, use_claude_cli=use_claude_cli)
     by_name = {b.name: b for b in backends}
     preferred = backends[0].name
 
@@ -115,12 +125,15 @@ def select(
 
 
 def remember(state: State, selection: Selection) -> None:
-    """Persist the choice so the probe is not repeated on every command."""
-    state.selected_backend = selection.backend.name
+    """Persist the probed choice so the probe is not repeated every command."""
+    state.selected_backend = selection.probed_name
     state.backend_degraded = selection.degraded
     state.backend_reason = selection.reason
     version = getattr(selection.backend, "version", "")
-    state.backend_probed_version = version if isinstance(version, str) else ""
+    mode = getattr(selection.backend, "mode", "")
+    state.backend_probed_version = (
+        f"{version} ({mode})" if version and mode else (version or "")
+    )
 
 
 def build_index(
@@ -140,6 +153,8 @@ def build_index(
         log.warning("backend %s failed at run time: %s", backend.name, exc.detail)
         selection.degraded = True
         selection.reason = f"runtime failure: {exc.detail[:200]}"
+        # probed_name is left alone on purpose: next run retries the preferred
+        # backend rather than inheriting today's failure forever.
         selection.backend = FallbackBackend()
         return selection.backend.build(root)
 

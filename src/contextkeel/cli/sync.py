@@ -36,6 +36,7 @@ def run(
             override=backend,
             pinned=workspace.config.context.backend,
             refresh=bool(backend),
+            use_claude_cli=workspace.config.context.use_claude_cli,
         )
         if check:
             existing = report.read(workspace.layout.index)

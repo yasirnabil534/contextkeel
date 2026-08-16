@@ -67,6 +67,9 @@ def collect(root: Path, cfg, state) -> dict:
             }
         )
 
+    from contextkeel.graph import graphify_backend as gb
+
+    mode = gb.resolve_mode(use_claude_cli=cfg.context.use_claude_cli)
     pinned = cfg.context.backend
     return {
         "contextkeel": {
@@ -83,6 +86,18 @@ def collect(root: Path, cfg, state) -> dict:
             "logs": str(layout.logs),
         },
         "index_backend": {
+            "mode": str(mode),
+            "why_this_mode": {
+                gb.IndexMode.FULL: "an LLM API key is set, so documentation is summarised too",
+                gb.IndexMode.CLAUDE_CLI: "opted in and the claude CLI is installed; uses your subscription quota",
+                gb.IndexMode.CODE_ONLY: (
+                    "no API key, so code is parsed locally and documentation is "
+                    "skipped. No key, no network, no quota -- and this tool only "
+                    "needs the code map anyway."
+                ),
+            }[mode],
+            "api_key_set": gb.has_api_key(),
+            "claude_cli_installed": gb.claude_cli_available(),
             "selected": state.selected_backend or "(not yet selected)",
             "degraded": state.backend_degraded,
             "reason": state.backend_reason,
@@ -107,6 +122,10 @@ def collect(root: Path, cfg, state) -> dict:
             "--with-viewer / --no-viewer": Origin(
                 cfg.context.viewer, "project.yml"
             ).__dict__,
+            "context.use_claude_cli": Origin(
+                str(cfg.context.use_claude_cli),
+                "project.yml" if cfg.context.use_claude_cli else "default",
+            ).__dict__,
             "--expert": Origin(
                 str(expert_enabled()),
                 "env" if os.environ.get(ENV_VAR) else "default",
@@ -127,9 +146,11 @@ def _commands() -> dict[str, str]:
     from contextkeel.graph import graphify_backend as gb
 
     return {
-        "index (preferred)": f"{gb.CLI} .   /   {gb.CLI} . --update",
-        "index (preferred, install)": f"uv tool install {gb.PACKAGE}",
-        "index (builtin)": "in-process tree-sitter parse; no subprocess",
+        "index (code-only, default)": f"{gb.CLI} . --code-only",
+        "index (with an API key)": f"{gb.CLI} .",
+        "index (via Claude CLI)": f"{gb.CLI} . --backend claude-cli",
+        "index (install)": f"uv tool install {gb.PACKAGE}",
+        "index (builtin fallback)": "in-process tree-sitter parse; no subprocess",
         "self-upgrade": "uv tool upgrade contextkeel",
         "notes viewer": "brew install --cask obsidian | winget install Obsidian.Obsidian "
         "| flatpak install flathub md.obsidian.Obsidian",

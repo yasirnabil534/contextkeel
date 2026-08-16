@@ -95,6 +95,10 @@ class Context(_Base):
     backend: str = ""
     #: Notes-viewer install policy. Experts pin this; everyone else ignores it.
     viewer: ViewerPolicy = "auto"
+    #: Let the indexer drive the local `claude` CLI for richer results.
+    #: Off by default: it spends the user's Claude subscription quota on every
+    #: index build, and that is not a cost to incur without being asked.
+    use_claude_cli: bool = False
 
 
 class Config(_Base):

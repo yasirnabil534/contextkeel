@@ -55,6 +55,7 @@ def run(root: Path | None = None, *, fix: bool = False, json_mode: bool = False)
         workspace.state,
         pinned=workspace.config.context.backend,
         allow_install=False,
+        use_claude_cli=workspace.config.context.use_claude_cli,
     )
     checks.append(
         Check(

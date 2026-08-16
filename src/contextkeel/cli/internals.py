@@ -30,6 +30,10 @@ def run(root: Path | None = None, *, json_mode: bool = False) -> int:
     backend = data["index_backend"]
     print("\nindex backend")
     print(f"  selected        : {backend['selected']}")
+    print(f"  mode            : {backend['mode']}")
+    print(f"  why             : {backend['why_this_mode']}")
+    print(f"  API key set     : {backend['api_key_set']}")
+    print(f"  claude CLI      : {backend['claude_cli_installed']}")
     print(f"  degraded        : {backend['degraded']}")
     print(f"  reason          : {backend['reason'] or '—'}")
     for candidate in backend["candidates"]:

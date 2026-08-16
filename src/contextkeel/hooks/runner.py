@@ -86,7 +86,10 @@ def sync_index(payload: dict, *, force: bool = False) -> None:
 
     cfg = resolve(load_config(layout.root), layout.root)
     selection = registry.select(
-        current, pinned=cfg.context.backend, allow_install=False
+        current,
+        pinned=cfg.context.backend,
+        allow_install=False,
+        use_claude_cli=cfg.context.use_claude_cli,
     )
     result = registry.build_index(selection, layout.root, incremental=True)
     report.write(result, layout.index)

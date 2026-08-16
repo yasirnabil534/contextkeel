@@ -20,18 +20,43 @@ seen can be translated back.
 
 | Backend | Priority | Notes |
 |---|---|---|
-| `graphify` | 100 | External CLI. Richer graph. **Needs an LLM API key** whenever the repository contains documentation files — which, after `ckeel init`, it always does. |
+| `graphify` | 100 | External CLI. Richer graph: real call edges, communities. |
 | `builtin` | 10 | Ships in the package. tree-sitter parse, offline, no key. Degrades again to a regex scan if tree-sitter cannot load. |
 
-Selection order: `--backend` flag, then `context.backend` in `project.yml`, then
-the cached choice, then a fresh probe by priority. A backend that passes its
-probe but fails at run time is caught mid-command and the fallback takes over,
-so you always end up with an index.
+### graphify runs in one of three modes
 
-Because `graphify` aborts without an API key, most machines will quietly use
-the built-in indexer. That is the intended behaviour, not a fault — set
-`ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`,
-`MOONSHOT_API_KEY`) if you want the richer one.
+An LLM is needed **only to summarise documentation files**, which this tool
+does not use — we want a code map for navigation. So a missing API key selects
+a cheaper mode rather than disqualifying the backend:
+
+| Mode | Selected when | Command |
+|---|---|---|
+| `full` | any key in `API_KEY_VARS` is set | `graphify .` |
+| `claude-cli` | `context.use_claude_cli: true` **and** the `claude` binary exists | `graphify . --backend claude-cli` |
+| `code-only` | otherwise (the default) | `graphify . --code-only` |
+
+`claude-cli` drives the Claude Code binary, which authenticates by
+subscription rather than an API key. It is opt-in because every index build
+consumes that quota. Note a Claude subscription and a `console.anthropic.com`
+API key are separate things; graphify supports both.
+
+An earlier version of this tool treated "no API key" as "graphify is
+unusable" and always fell back to the bundled indexer. That was wrong, and it
+meant nearly every user silently got the weaker index.
+
+### Selection
+
+Order: `--backend` flag, then `context.backend` in `project.yml`, then the
+cached choice, then a fresh probe by priority.
+
+A backend that passes its probe can still fail at run time; when that happens
+the fallback takes over for that run only. The **probed** choice is what gets
+cached, never the runtime substitution — otherwise one transient failure would
+downgrade the user permanently and silently, with no way back.
+
+Because a cached selection skips `is_available()`, the flag probe is also run
+lazily before building. Without that, `supports()` answers False for every
+flag and the code-only path never engages after the first run.
 
 ## Generated files
 

@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
 from contextkeel import platform as ckplat
@@ -34,19 +37,51 @@ PACKAGE = "graphifyy"
 BUILD_TIMEOUT = 900
 PROBE_TIMEOUT = 30
 
-#: This backend performs semantic extraction on documentation files and aborts
-#: with "no LLM API key found" when it cannot. Any repository this tool has set
-#: up contains dozens of generated markdown files, so without one of these keys
-#: the backend fails on essentially every real project. Detect that up front
-#: rather than discovering it mid-build: the failure is predictable, so the
-#: degradation should be too.
+#: Keys that unlock semantic extraction of documentation files. They are a
+#: bonus, not a requirement: see IndexMode below.
 API_KEY_VARS = (
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "MOONSHOT_API_KEY",
+    "DEEPSEEK_API_KEY",
 )
+
+
+class IndexMode(StrEnum):
+    """How to run the preferred indexer on this machine.
+
+    It only needs an LLM for *summarising documentation*, which this tool does
+    not use -- we want a code map for navigation. So a missing API key is not
+    a reason to fall back; it just selects a cheaper mode.
+    """
+
+    #: An API key is set: full extraction, documentation included.
+    FULL = "full"
+    #: Drive the local `claude` binary instead of an API key. Free of API
+    #: billing but spends the user's subscription quota, so it is opt-in.
+    CLAUDE_CLI = "claude-cli"
+    #: Local AST parse only. No key, no network, no quota. The default.
+    CODE_ONLY = "code-only"
+
+
+def has_api_key() -> bool:
+    """Is a key present that semantic extraction could use?"""
+    return any(os.environ.get(var, "").strip() for var in API_KEY_VARS)
+
+
+def claude_cli_available() -> bool:
+    """Is the Claude Code CLI installed? It authenticates by subscription."""
+    return ckplat.which("claude") is not None
+
+
+def resolve_mode(*, use_claude_cli: bool = False) -> IndexMode:
+    if has_api_key():
+        return IndexMode.FULL
+    if use_claude_cli and claude_cli_available():
+        return IndexMode.CLAUDE_CLI
+    return IndexMode.CODE_ONLY
 
 
 class GraphifyBackend:
@@ -55,8 +90,11 @@ class GraphifyBackend:
     name = "graphify"
     priority = 100
 
-    def __init__(self, *, allow_install: bool = True) -> None:
+    def __init__(
+        self, *, allow_install: bool = True, use_claude_cli: bool = False
+    ) -> None:
         self._allow_install = allow_install
+        self.mode = resolve_mode(use_claude_cli=use_claude_cli)
         self._version: str | None = None
         self._flags: set[str] | None = None
         self._install_attempted = False
@@ -64,11 +102,6 @@ class GraphifyBackend:
     # -- availability -------------------------------------------------------
 
     def is_available(self) -> bool:
-        if not has_api_key():
-            # Would fail during the build anyway; skipping here also avoids a
-            # pointless install and stops it leaving output behind.
-            log.debug("no LLM API key set; %s cannot index doc-bearing repos", CLI)
-            return False
         if ckplat.which(CLI):
             return self._probe()
         if self._allow_install and not self._install_attempted:
@@ -122,9 +155,6 @@ class GraphifyBackend:
         return self._run(root, incremental=False)
 
     def update(self, root: Path) -> IndexResult:
-        if not self.supports("--update"):
-            log.debug("no --update flag; falling back to a full build")
-            return self._run(root, incremental=False)
         return self._run(root, incremental=True)
 
     def query(self, root: Path, q: str) -> list[Node]:
@@ -143,9 +173,27 @@ class GraphifyBackend:
         if not cli:
             raise BackendUnavailable(f"{CLI} is not installed", backend=self.name)
 
+        # A cached selection skips is_available(), so the flag probe may not
+        # have run yet. Without this, supports() answers False for everything
+        # and the code-only path would never engage after the first run.
+        if self._flags is None:
+            self._probe()
+
         cmd = [str(cli), "."]
-        if incremental:
+        if incremental and self.supports("--update"):
             cmd.append("--update")
+
+        if self.mode is IndexMode.CODE_ONLY:
+            if not self.supports("--code-only"):
+                # An older build cannot skip documentation, and without a key
+                # it would abort mid-run. Step aside for the bundled indexer.
+                raise BackendUnavailable(
+                    f"{CLI} {self.version} has no --code-only and no API key is set",
+                    backend=self.name,
+                )
+            cmd.append("--code-only")
+        elif self.mode is IndexMode.CLAUDE_CLI:
+            cmd += ["--backend", "claude-cli"]
 
         result = ckplat.run(cmd, timeout=BUILD_TIMEOUT, cwd=root)
         if not result.ok:
@@ -181,45 +229,54 @@ class GraphifyBackend:
         return None
 
     def _parse(self, raw: dict) -> IndexResult:
-        """Map the tool's native schema onto ours, tolerating shape drift."""
+        """Map the tool's native schema onto ours, tolerating shape drift.
+
+        The native format is networkx node-link: nodes carry ``label``,
+        ``source_file`` and ``source_location`` (e.g. "L12"), edges live under
+        ``links`` with a ``relation``, and community membership is an integer
+        on each node rather than a separate list. Alternative key names are
+        still accepted so a schema change degrades rather than breaks.
+        """
         nodes: list[Node] = []
         for item in raw.get("nodes", []) or []:
             if not isinstance(item, dict):
                 continue
-            identifier = str(item.get("id") or item.get("name") or "")
+            identifier = str(item.get("id") or item.get("label") or "")
             if not identifier:
                 continue
             nodes.append(
                 Node(
                     id=identifier,
-                    kind=_map_kind(str(item.get("type") or item.get("kind") or "")),
-                    path=str(item.get("file") or item.get("path") or ""),
-                    name=str(item.get("name") or identifier),
-                    line=int(item.get("line") or item.get("start_line") or 0),
+                    kind=_node_kind(item),
+                    path=str(
+                        item.get("source_file")
+                        or item.get("file")
+                        or item.get("path")
+                        or ""
+                    ),
+                    name=str(item.get("label") or item.get("name") or identifier),
+                    line=_line_of(item),
                 )
             )
 
         edges: list[Edge] = []
-        for item in raw.get("edges", []) or raw.get("links", []) or []:
+        for item in raw.get("links", []) or raw.get("edges", []) or []:
             if not isinstance(item, dict):
                 continue
             src = str(item.get("source") or item.get("src") or item.get("from") or "")
             dst = str(item.get("target") or item.get("dst") or item.get("to") or "")
             if src and dst:
                 edges.append(
-                    Edge(src=src, dst=dst, kind=_map_edge(str(item.get("type") or "")))
-                )
-
-        communities: list[Community] = []
-        for item in raw.get("communities", []) or []:
-            if isinstance(item, dict):
-                communities.append(
-                    Community(
-                        id=str(item.get("id", len(communities))),
-                        label=str(item.get("label") or item.get("name") or ""),
-                        members=tuple(str(m) for m in item.get("members", []) or []),
+                    Edge(
+                        src=src,
+                        dst=dst,
+                        kind=_map_edge(
+                            str(item.get("relation") or item.get("type") or "")
+                        ),
                     )
                 )
+
+        communities = _communities_from(raw, nodes)
 
         return IndexResult(
             nodes=nodes,
@@ -230,16 +287,76 @@ class GraphifyBackend:
             stats={
                 "source": CLI,
                 "version": self.version,
-                "files": len({n.path for n in nodes}),
+                "mode": str(self.mode),
+                "files": len({n.path for n in nodes if n.path}),
             },
         )
 
 
-def has_api_key() -> bool:
-    """Is a key present that this backend's semantic extraction can use?"""
-    import os
+_LINE_RE = re.compile(r"(\d+)")
 
-    return any(os.environ.get(var, "").strip() for var in API_KEY_VARS)
+
+def _line_of(item: dict) -> int:
+    """``source_location`` is a string like "L12"; ``line`` may also appear."""
+    for key in ("line", "start_line"):
+        value = item.get(key)
+        if isinstance(value, int):
+            return value
+    match = _LINE_RE.search(str(item.get("source_location") or ""))
+    return int(match.group(1)) if match else 0
+
+
+def _node_kind(item: dict) -> NodeKind:
+    """Kind is implied by flags rather than stated outright."""
+    if item.get("_callable_class"):
+        return NodeKind.CLASS
+    if item.get("_callable"):
+        name = str(item.get("label") or "")
+        return NodeKind.METHOD if name.startswith(".") else NodeKind.FUNCTION
+    if item.get("file_type") or item.get("source_file"):
+        return NodeKind.MODULE
+    return _map_kind(str(item.get("type") or item.get("kind") or ""))
+
+
+def _communities_from(raw: dict, nodes: list[Node]) -> list[Community]:
+    """Prefer an explicit list; otherwise group by the per-node community id."""
+    explicit = raw.get("communities") or []
+    if explicit:
+        out: list[Community] = []
+        for index, item in enumerate(explicit):
+            if isinstance(item, dict):
+                out.append(
+                    Community(
+                        id=str(item.get("id", index)),
+                        label=str(item.get("label") or item.get("name") or ""),
+                        members=tuple(str(m) for m in item.get("members", []) or []),
+                    )
+                )
+        return out
+
+    by_id = {n.id: n for n in nodes}
+    buckets: dict[str, list[str]] = {}
+    for item in raw.get("nodes", []) or []:
+        if not isinstance(item, dict) or item.get("community") is None:
+            continue
+        node_id = str(item.get("id") or "")
+        if node_id in by_id:
+            buckets.setdefault(str(item["community"]), []).append(node_id)
+
+    # Name each group after the directory its members share, which is far
+    # more useful to an agent than "Community 3".
+    result: list[Community] = []
+    for key, members in sorted(
+        buckets.items(), key=lambda kv: int(kv[0]) if kv[0].isdigit() else 0
+    ):
+        dirs = {
+            (by_id[m].path.rsplit("/", 1)[0] if "/" in by_id[m].path else ".")
+            for m in members
+            if by_id[m].path
+        }
+        label = dirs.pop() if len(dirs) == 1 else f"Area {key}"
+        result.append(Community(id=key, label=label, members=tuple(sorted(members))))
+    return result
 
 
 def _map_kind(value: str) -> NodeKind:
@@ -265,4 +382,11 @@ def _map_edge(value: str) -> EdgeKind:
     return EdgeKind.IMPORTS
 
 
-__all__ = ["GraphifyBackend"]
+__all__ = [
+    "API_KEY_VARS",
+    "GraphifyBackend",
+    "IndexMode",
+    "claude_cli_available",
+    "has_api_key",
+    "resolve_mode",
+]
