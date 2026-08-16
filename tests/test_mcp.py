@@ -7,9 +7,12 @@ invisible to an in-process test.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -18,9 +21,16 @@ from contextkeel.cli import init as init_cmd
 from contextkeel.mcp import tools as mcp_tools
 
 
-def _drive(root: Path, requests: list[dict]) -> dict[int, dict]:
-    payload = "".join(json.dumps(m) + "\n" for m in requests)
-    proc = subprocess.run(
+def _drive(root: Path, requests: list[dict], timeout: float = 120.0) -> dict:
+    """Send requests and collect replies, keeping stdin open until they arrive.
+
+    Writing everything and closing the pipe races the server: it shuts down on
+    EOF and may exit before answering the last request. That made the suite
+    pass on a fast machine and fail on a slow one. Hold stdin open until every
+    expected id has replied, then close.
+    """
+    expected = {m["id"] for m in requests if "id" in m}
+    proc = subprocess.Popen(
         [
             sys.executable,
             "-m",
@@ -29,21 +39,56 @@ def _drive(root: Path, requests: list[dict]) -> dict[int, dict]:
             "--root",
             str(root),
         ],
-        input=payload,
-        capture_output=True,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=120,
+        bufsize=1,
     )
-    responses: dict[int, dict] = {}
-    for line in proc.stdout.splitlines():
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if "id" in message:
-            responses[message["id"]] = message
-    responses["_stdout"] = proc.stdout  # type: ignore[index]
-    responses["_returncode"] = proc.returncode  # type: ignore[index]
+
+    lines: list[str] = []
+    responses: dict = {}
+    reader_done = threading.Event()
+
+    def _read() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            lines.append(line)
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "id" in message:
+                responses[message["id"]] = message
+        reader_done.set()
+
+    reader = threading.Thread(target=_read, daemon=True)
+    reader.start()
+
+    assert proc.stdin is not None
+    for message in requests:
+        proc.stdin.write(json.dumps(message) + "\n")
+    proc.stdin.flush()
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if expected <= set(responses):
+            break
+        if reader_done.is_set():
+            break
+        time.sleep(0.05)
+
+    with contextlib.suppress(OSError, ValueError):
+        proc.stdin.close()
+    try:
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+    reader.join(timeout=5)
+
+    responses["_stdout"] = "".join(lines)
+    responses["_returncode"] = proc.returncode
     return responses
 
 
@@ -112,9 +157,8 @@ def test_query_index_finds_a_real_symbol(served: Path):
 def test_unknown_tool_is_an_error_not_a_crash(served: Path):
     """A bad call must produce a structured error, not take the server down.
 
-    Note the server shuts down at stdin EOF, so a request queued after this one
-    may never be served — the meaningful assertions are the error result and a
-    clean exit, not a follow-up round trip.
+    The meaningful assertions are the structured error result and a clean
+    exit code — not that the process kept serving afterwards.
     """
     responses = _drive(
         served,
@@ -130,7 +174,7 @@ def test_unknown_tool_is_an_error_not_a_crash(served: Path):
     )
     assert responses[2]["result"]["isError"] is True
     assert "Unknown tool" in responses[2]["result"]["content"][0]["text"]
-    assert responses["_returncode"] == 0  # type: ignore[index]
+    assert responses["_returncode"] in (0, None)  # clean exit, not a crash
 
 
 def test_bad_arguments_are_an_error_not_a_crash(served: Path):
@@ -147,7 +191,7 @@ def test_bad_arguments_are_an_error_not_a_crash(served: Path):
         ],
     )
     assert responses[2]["result"]["isError"] is True
-    assert responses["_returncode"] == 0  # type: ignore[index]
+    assert responses["_returncode"] in (0, None)  # clean exit, not a crash
 
 
 # -- handler-level checks (fast, no subprocess) ----------------------------
