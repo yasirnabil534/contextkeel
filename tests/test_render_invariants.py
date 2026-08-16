@@ -47,11 +47,16 @@ def generated_files(root: Path) -> dict[Path, str]:
 def test_no_foreign_absolute_paths(initialised: Path):
     """The bug: three MCP files hardcoded one developer's D:\\Learnings path."""
     offenders: list[str] = []
-    pattern = re.compile(r"[A-Z]:\\\\[\w\\\\]+|/Users/[\w./-]+|/home/[\w./-]+")
+    pattern = re.compile(r"[A-Za-z]:\\\\+[^\"\s]+|/Users/[^\"\s]+|/home/[^\"\s]+")
+    # JSON escapes backslashes, so the on-disk form of a Windows path has
+    # doubled separators while str(root) has single ones. Compare against both
+    # or every legitimate in-repo path looks foreign.
+    roots = {str(initialised), str(initialised).replace("\\", "\\\\")}
     for path, text in generated_files(initialised).items():
         for match in pattern.finditer(text):
-            if str(initialised) not in match.group(0):
-                offenders.append(f"{path.name}: {match.group(0)}")
+            found = match.group(0)
+            if not any(root in found or found in root for root in roots):
+                offenders.append(f"{path.name}: {found}")
     assert not offenders, f"foreign absolute paths leaked: {offenders}"
 
 

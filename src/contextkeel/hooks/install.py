@@ -55,7 +55,10 @@ def _merge_claude(new: dict, old: dict) -> dict:
     hooks_old = old.get("hooks", {})
     hooks_new = new.get("hooks", {})
     merged_hooks: dict[str, list] = {}
-    for event in set(hooks_old) | set(hooks_new):
+    # Sorted: set iteration order varies per process (string hash
+    # randomisation), which would reorder the JSON keys and make every
+    # sync report a spurious config change.
+    for event in sorted(set(hooks_old) | set(hooks_new)):
         kept = [entry for entry in hooks_old.get(event, []) if not _owned(entry)]
         merged_hooks[event] = kept + hooks_new.get(event, [])
     merged["hooks"] = merged_hooks
@@ -68,7 +71,10 @@ def _merge_cursor(new: dict, old: dict) -> dict:
     hooks_old = old.get("hooks", {})
     hooks_new = new.get("hooks", {})
     merged_hooks: dict[str, list] = {}
-    for event in set(hooks_old) | set(hooks_new):
+    # Sorted: set iteration order varies per process (string hash
+    # randomisation), which would reorder the JSON keys and make every
+    # sync report a spurious config change.
+    for event in sorted(set(hooks_old) | set(hooks_new)):
         kept = [entry for entry in hooks_old.get(event, []) if not _owned(entry)]
         merged_hooks[event] = kept + hooks_new.get(event, [])
     merged["hooks"] = merged_hooks
