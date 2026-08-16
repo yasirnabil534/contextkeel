@@ -428,7 +428,13 @@ def _detect_architecture(root: Path, arch: Architecture) -> None:
         arch.api_style = "rest"
 
 
-BACKEND_MANIFESTS = ("pyproject.toml", "go.mod", "Cargo.toml", "pom.xml", "build.gradle")
+BACKEND_MANIFESTS = (
+    "pyproject.toml",
+    "go.mod",
+    "Cargo.toml",
+    "pom.xml",
+    "build.gradle",
+)
 
 
 def _infer_type(root: Path) -> str:
@@ -447,9 +453,21 @@ def _infer_type(root: Path) -> str:
         has_frontend = any(
             marker in deps
             for marker in (
-                "react", "next", "vue", "nuxt", "svelte", "@sveltejs/kit",
-                "@angular/core", "solid-js", "astro", "react-native", "expo",
-                "electron", "@tauri-apps/api", "ionic", "capacitor",
+                "react",
+                "next",
+                "vue",
+                "nuxt",
+                "svelte",
+                "@sveltejs/kit",
+                "@angular/core",
+                "solid-js",
+                "astro",
+                "react-native",
+                "expo",
+                "electron",
+                "@tauri-apps/api",
+                "ionic",
+                "capacitor",
             )
         )
 
@@ -468,7 +486,9 @@ def _infer_type(root: Path) -> str:
     return ""
 
 
-def _apply_defaults(cfg: Config, detected_backend: bool, detected_frontend: bool) -> None:
+def _apply_defaults(
+    cfg: Config, detected_backend: bool, detected_frontend: bool
+) -> None:
     d = cfg.defaults or DEFAULTS
     fe_d = d.get("frontend", {})
     be_d = d.get("backend", {})
