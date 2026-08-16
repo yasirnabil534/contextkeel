@@ -208,7 +208,23 @@ class GraphifyBackend:
             raise BackendUnavailable(
                 f"{CLI} {self.version} produced no readable output", backend=self.name
             )
+        self._render_viewer(cli, root)
         return parsed
+
+    def _render_viewer(self, cli: Path, root: Path) -> None:
+        """Generate the browsable graph.html and GRAPH_REPORT.md.
+
+        Extraction alone leaves only machine-readable JSON. This second pass
+        is what a human reviewer actually opens, and with --no-label it needs
+        no LLM. Failure here is not fatal: the index already exists, and the
+        agent-facing report is written by us either way.
+        """
+        cmd = [str(cli), "cluster-only", "."]
+        if self.mode is IndexMode.CODE_ONLY:
+            cmd.append("--no-label")  # community naming is the only LLM step
+        result = ckplat.run(cmd, timeout=BUILD_TIMEOUT, cwd=root)
+        if not result.ok:
+            log.debug("viewer generation skipped: %s", result.output[:300])
 
     # -- parsing ------------------------------------------------------------
 

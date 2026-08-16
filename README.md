@@ -14,6 +14,29 @@ irm https://contextkeel.dev/install.ps1 | iex
 
 That is the whole setup. Nothing needs to be installed first — not even Python.
 
+## What you need
+
+**Nothing.** The installer fetches everything, in this order:
+
+1. **uv** — a single standalone binary, downloaded by the install line.
+2. **Python 3.11+** — supplied *by* uv, so your system Python is irrelevant and
+   no package manager or `sudo` is involved.
+3. **contextkeel** — installed by uv as an isolated tool.
+4. **The code indexer** — installed automatically the first time it is needed.
+
+The only thing that must already exist is `curl` or `wget` on macOS/Linux, and
+PowerShell on Windows. Both are present on a stock system.
+
+### Optional extras
+
+None of these block anything. contextkeel checks for each and adapts.
+
+| Thing | What it adds | If missing |
+|---|---|---|
+| **Node / npx** | One extra MCP server that reads your notes folder | That server is simply left out of the generated config. Everything else works. Install from [nodejs.org](https://nodejs.org) if you want it. |
+| **Obsidian** | A nice reader for your project notes | Notes are plain Markdown and open in any editor. Install from [obsidian.md](https://obsidian.md), or run `ckeel init --with-viewer` to retry the automatic install. |
+| **An LLM API key** | Documentation summarised in the code index | Code is still indexed in full. See *How the code index is built* below. |
+
 ---
 
 ## What happens after that
@@ -43,6 +66,25 @@ the same source, so they behave identically and cannot drift apart. No manual
 setup, no config files to copy, no paths to fix by hand.
 
 Any other MCP-capable editor can use the bundled server directly.
+
+## Reviewing a project
+
+Picking up someone else's repository, or checking a junior's work? After
+`ckeel sync` there are three things to open, in increasing detail:
+
+| Open | To see |
+|---|---|
+| `Vault/Changelog.md` | What shipped, newest first, in plain sentences. |
+| `graphify-out/graph.html` | The codebase as an interactive graph, in a browser. |
+| `Vault/` in [Obsidian](https://obsidian.md) | Conventions, glossary, API contracts, and the decision log, cross-linked. |
+
+`ckeel status` prints where these live. Obsidian is optional — the vault is
+plain Markdown, so any editor works — and the graph is a self-contained HTML
+file needing no server.
+
+One thing to know: `graphify-out/` and `.contextkeel/` are generated and
+git-ignored, so a fresh clone will not have them. Run `ckeel sync` once and
+they appear. `Vault/` **is** committed, so the notes travel with the repo.
 
 ## Under the hood
 

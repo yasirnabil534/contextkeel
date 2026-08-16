@@ -52,6 +52,17 @@ def run(root: Path | None = None, *, json_mode: bool = False) -> int:
         console.say(f"Plan    : {done} done, {pending} pending")
     if latest:
         console.say(f"Latest  : {latest}")
+
+    # Reviewing rather than building? These are the two things to open.
+    graph_html = workspace.root / "graphify-out" / "graph.html"
+    if graph_html.is_file():
+        console.say(
+            f"Review  : open {graph_html.name} in a browser, {workspace.vault_dir.name}/ for notes"
+        )
+    else:
+        console.say(
+            f"Review  : {workspace.vault_dir.name}/ for notes (run `ckeel sync` for the code map)"
+        )
     console.detail(
         f"backend={workspace.state.selected_backend} "
         f"degraded={workspace.state.backend_degraded}"

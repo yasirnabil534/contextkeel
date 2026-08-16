@@ -262,3 +262,44 @@ def test_user_permissions_and_hooks_survive_a_rerender(initialised: Path):
         for h in merged["hooks"].get("PreToolUse", [])
     )
     assert "Bash(ckeel:*)" in merged["permissions"]["allow"]
+
+
+# -- external runtimes are optional, never required ------------------------
+
+
+def test_filesystem_server_omitted_when_node_is_absent(tmp_path, monkeypatch):
+    """Never hand an editor a server that cannot start.
+
+    The filesystem MCP server is the one piece needing Node, which this tool
+    does not install. On a machine without npx it must be left out rather than
+    emitted and broken.
+    """
+    from contextkeel.render import mcp as mcp_render
+
+    monkeypatch.setattr(mcp_render, "_path", lambda p: str(p))
+    from contextkeel import platform as ckplat
+
+    monkeypatch.setattr(ckplat, "which", lambda stem: None)
+    names = {s.name for s in mcp_render.servers_for(tmp_path, tmp_path / "Vault")}
+    assert "filesystem" not in names
+    # The servers that ship with uv are always available.
+    assert {"contextkeel", "git", "fetch"} <= names
+
+    monkeypatch.setattr(ckplat, "which", lambda stem: Path("/usr/bin/npx"))
+    names = {s.name for s in mcp_render.servers_for(tmp_path, tmp_path / "Vault")}
+    assert "filesystem" in names
+
+
+def test_vault_opens_as_an_obsidian_vault(initialised: Path):
+    """A reviewer opening the folder should not meet a first-run wizard."""
+    import json
+
+    config = initialised / "Vault" / ".obsidian" / "app.json"
+    assert config.is_file()
+    assert json.loads(config.read_text(encoding="utf-8"))["attachmentFolderPath"]
+
+
+def test_notes_are_readable_without_any_app(initialised: Path):
+    """Obsidian is a viewer, never a dependency."""
+    for name in ("Home.md", "Changelog.md", "Context/Conventions.md"):
+        assert (initialised / "Vault" / name).read_text(encoding="utf-8").strip()

@@ -131,7 +131,38 @@ def scaffold(
         if not marker.exists():
             marker.touch()
 
+    _seed_obsidian_config(vault_dir)
     return result
+
+
+def _seed_obsidian_config(vault_dir: Path) -> None:
+    """Make the folder open cleanly as an Obsidian vault.
+
+    Obsidian would create this itself, but seeding it means a reviewer who
+    opens the folder gets sensible settings immediately instead of the
+    first-run wizard. Written in code rather than shipped as package data
+    because a dot-directory is easy for a build backend to drop silently.
+
+    Never overwrites: these are the user's settings once Obsidian touches them.
+    """
+    import json
+
+    config_dir = vault_dir / ".obsidian"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    app = config_dir / "app.json"
+    if not app.exists():
+        app.write_text(
+            json.dumps(
+                {
+                    "attachmentFolderPath": "attachments",
+                    "alwaysUpdateLinks": True,
+                    "newFileLocation": "folder",
+                    "newFileFolderPath": "Inbox",
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
 
 
 def is_scaffolded(vault_dir: Path) -> bool:

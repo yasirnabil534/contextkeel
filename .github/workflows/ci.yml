@@ -81,6 +81,11 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           ckeel --version
           ckeel doctor
+          # The promise: one command, then a reviewer has something to open.
+          test -f Vault/Changelog.md            || { echo "notes missing"; exit 1; }
+          test -f Vault/Context/Conventions.md  || { echo "conventions missing"; exit 1; }
+          test -f graphify-out/graph.html       || { echo "graph viewer missing"; exit 1; }
+          echo "reviewer artifacts present on a machine with nothing preinstalled"
 
       - name: Show the log if setup failed
         if: failure() && matrix.container != ''

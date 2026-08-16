@@ -23,7 +23,9 @@ def servers_for(root: Path, vault_dir: Path) -> list[McpServerDef]:
     root = root.resolve()
     vault_dir = vault_dir.resolve()
 
-    return [
+    from contextkeel import platform as ckplat
+
+    servers = [
         # This package's own server: one entry point gives every editor the
         # same context tools with no manual configuration.
         McpServerDef(
@@ -31,11 +33,7 @@ def servers_for(root: Path, vault_dir: Path) -> list[McpServerDef]:
             command="ckeel",
             args=["mcp-serve", "--root", _path(root)],
         ),
-        McpServerDef(
-            name="filesystem",
-            command="npx",
-            args=["-y", "@modelcontextprotocol/server-filesystem", _path(vault_dir)],
-        ),
+        # uvx ships with uv, which the installer guarantees.
         McpServerDef(
             name="git",
             command="uvx",
@@ -43,6 +41,24 @@ def servers_for(root: Path, vault_dir: Path) -> list[McpServerDef]:
         ),
         McpServerDef(name="fetch", command="uvx", args=["mcp-server-fetch"]),
     ]
+
+    # The filesystem server is the one piece needing Node, which this tool does
+    # not install. Emitting it on a machine without npx would hand the editor a
+    # server that can never start, so include it only when it can actually run.
+    if ckplat.which("npx"):
+        servers.insert(
+            1,
+            McpServerDef(
+                name="filesystem",
+                command="npx",
+                args=[
+                    "-y",
+                    "@modelcontextprotocol/server-filesystem",
+                    _path(vault_dir),
+                ],
+            ),
+        )
+    return servers
 
 
 def _path(path: Path) -> str:
