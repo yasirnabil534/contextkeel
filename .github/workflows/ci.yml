@@ -82,6 +82,11 @@ jobs:
           ckeel --version
           ckeel doctor
 
+      - name: Show the log if setup failed
+        if: failure() && matrix.container != ''
+        shell: bash
+        run: cat .contextkeel/logs/contextkeel.log 2>/dev/null || echo "no log written"
+
       - name: PowerShell installer
         if: matrix.container == ''
         shell: pwsh
@@ -91,6 +96,11 @@ jobs:
           $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
           ckeel --version
           ckeel doctor
+
+      - name: Show the log if setup failed
+        if: failure() && matrix.container == ''
+        shell: pwsh
+        run: Get-Content .contextkeel/logs/contextkeel.log -ErrorAction SilentlyContinue
 
   shellcheck:
     runs-on: ubuntu-latest

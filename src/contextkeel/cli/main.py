@@ -257,7 +257,9 @@ def main() -> int:
             return int(exc.exit_code)  # type: ignore[attr-defined]
 
         logging.getLogger("contextkeel").exception("unexpected failure")
-        console.fail("Something unexpected went wrong.")
+        # Name the error on the visible line. A log path is no help when the
+        # machine that wrote it was a CI runner or a container that is gone.
+        console.fail(f"Something unexpected went wrong: {type(exc).__name__}: {exc}")
         with contextlib.suppress(OSError):
             console.say(f"Details: {paths.layout().logs / 'contextkeel.log'}")
         console.detail(repr(exc))
